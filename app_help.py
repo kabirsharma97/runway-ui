@@ -8,8 +8,8 @@ import streamlit as st
 # =========================
 st.set_page_config(page_title="Runway Text+Image → Video", page_icon="🎬", layout="wide")
 
-st.title("🎬 Text-to-Video Generator")
-st.caption("Enter a prompt, upload one or more images (logo, reference), pick a model, and generate.")
+st.title("🎬 Text-to-Video Generator (Runway API)")
+st.caption("Prompt-only is supported. Images are optional (logo/reference). Pick a model and generate.")
 
 # =========================
 # CONSTANTS
@@ -31,7 +31,7 @@ MODEL_META = {
 API_KEY = st.secrets.get("RUNWAY_API_KEY", os.getenv("RUNWAY_API_KEY", ""))
 
 if not API_KEY:
-    st.error("Missing API key. Add RUNWAY_API_KEY in `.streamlit/secrets.toml` or environment.")
+    st.error("Missing API key. Add RUNWAY_API_KEY in `.streamlit/secrets.toml` (local) or Streamlit Cloud Secrets.")
     st.stop()
 
 # =========================
@@ -94,14 +94,16 @@ def start_task(model: str, ratio: str, duration: int, prompt_text: str, prompt_i
         "duration": duration,
         "seed": 123456789  # deterministic; change for variation
     }
-    # promptImage can be a single string or an array of {uri, position}
+
+    # Only attach promptImage if we actually have images
     if len(prompt_images) == 1:
         payload["promptImage"] = prompt_images[0]
-    else:
+    elif len(prompt_images) > 1:
         arr = [{"uri": prompt_images[0], "position": "first"}]
         for uri in prompt_images[1:]:
             arr.append({"uri": uri, "position": "last"})
         payload["promptImage"] = arr
+    # If zero images, prompt-only request (no promptImage field)
 
     resp = requests.post(url, headers=headers, json=payload, timeout=60)
     return resp
@@ -122,18 +124,18 @@ with colA:
         height=140,
         help=(
             "Describe the shot, story beats, camera/motion, lighting, mood, and constraints.\n"
-            "Mention brand cues (logo/color) and safety limits. Uploaded images act as visual guidance."
+            "Images are optional. If provided, they act as visual guidance (e.g., logo, person still)."
         ),
         placeholder="Describe the scene you want to generate…"
     )
 
     uploads = st.file_uploader(
-        label="Upload reference images (1–3): fan photo, brand logo, etc.",
+        label="(Optional) Upload reference images (1–3): fan photo, brand logo, etc.",
         accept_multiple_files=True,
         type=["png","jpg","jpeg"],
         help=(
-            "1–3 PNG/JPG images. The first image is treated as the primary reference; "
-            "others act as auxiliary style/branding cues. Large images are padded to the selected aspect."
+            "Optional PNG/JPG images. The first image is treated as the primary reference; "
+            "others act as auxiliary style/branding cues. If omitted, generation uses prompt-only."
         )
     )
 
@@ -141,12 +143,12 @@ with colB:
     model = st.selectbox(
         "Model",
         list(MODEL_META.keys()),
-        index=0,
+        index=2,  # default to veo3 for prompt-only demo friendliness
         help=(
             "Choose a Runway model:\n"
             "• gen4_turbo — fastest & cheapest\n"
             "• gen4_aleph — sharper than turbo\n"
-            "• veo3 / veo3.1 — higher fidelity\n"
+            "• veo3 / veo3.1 — higher fidelity (great for prompt-only)\n"
             "• veo3.1_fast — balanced speed/quality"
         )
     )
@@ -157,7 +159,7 @@ with colB:
         index=0,
         help=(
             "Output frame shape. Must be one of the allowed ratios.\n"
-            "Uploaded images are auto-padded to match:\n"
+            "Uploaded images (if any) are auto-padded to match:\n"
             "• 1280:720 (landscape) • 720:1280 (vertical) • 960:960 (square)"
         )
     )
@@ -185,50 +187,48 @@ with colB:
 
     st.caption(f"Cost hint: ~{MODEL_META[model]['credits_per_sec']} credits/sec × {duration}s")
 
-st.caption("Click **Generate** to submit your prompt and images to Runway’s servers. Rendering happens remotely.")
+st.caption("Click **Generate** to submit to Runway. Rendering happens remotely. Images are optional.")
 go = st.button("🚀 Generate Video", type="primary", use_container_width=True)
 
 # =========================
 # ACTION
 # =========================
 if go:
-    if not uploads:
-        st.warning("Please upload at least one image (logo, reference, or still).")
-        st.stop()
-
     target_ratio = ratio_to_float(ratio)
     data_uris = []
     too_big = False
 
-    # Preprocess images → normalize → downscale → JPEG (to avoid blob deletion) → Data URI
-    with st.status("Preprocessing images…", expanded=False) as s:
-        for f in uploads:
-            mime_guess = mimetypes.guess_type(f.name)[0] or "image/jpeg"
-            img = Image.open(f).convert("RGB")
+    # Only preprocess if images were uploaded
+    if uploads and len(uploads) > 0:
+        with st.status("Preprocessing images…", expanded=False) as s:
+            for f in uploads:
+                img = Image.open(f).convert("RGB")
 
-            # Normalize aspect to be valid & match target ratio
-            img = normalize_to_ratio_pad(img, target_ratio=target_ratio, pad_color=(255,255,255))
+                # Normalize aspect to be valid & match target ratio
+                img = normalize_to_ratio_pad(img, target_ratio=target_ratio, pad_color=(255,255,255))
 
-            # Gentle downscale to keep Data URI small (reduce blob failures)
-            max_px = 1024  # smaller than 1536 to be extra safe
-            w, h = img.size
-            scale = max(w, h) / max_px
-            if scale > 1.0:
-                img = img.resize((int(w/scale), int(h/scale)), Image.LANCZOS)
+                # Gentle downscale to keep Data URI small (reduce blob failures)
+                max_px = 1024
+                w, h = img.size
+                scale = max(w, h) / max_px
+                if scale > 1.0:
+                    img = img.resize((int(w/scale), int(h/scale)), Image.LANCZOS)
 
-            # Encode as JPEG (smaller than PNG)
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=90)
-            file_bytes = buf.getvalue()
-            if len(file_bytes) > 5 * 1024 * 1024:  # ~5MB
-                too_big = True
+                # Encode as JPEG (smaller than PNG)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=90)
+                file_bytes = buf.getvalue()
+                if len(file_bytes) > 5 * 1024 * 1024:  # ~5MB
+                    too_big = True
 
-            uri = file_to_data_uri(file_bytes, "image/jpeg")
-            data_uris.append(uri)
-        s.update(label="Images ready.", state="complete")
+                uri = file_to_data_uri(file_bytes, "image/jpeg")
+                data_uris.append(uri)
+            s.update(label="Images ready.", state="complete")
 
-    if too_big:
-        st.warning("One or more images are still large (>5MB after compression). Consider uploading smaller images.")
+        if too_big:
+            st.warning("One or more images are still large (>5MB after compression). Consider smaller images.")
+    else:
+        st.info("No images provided — generating from prompt only.")
 
     # Start task
     with st.status("Submitting task to Runway…", expanded=False) as s:
@@ -246,12 +246,13 @@ if go:
         st.code(f"HTTP {resp.status_code}\n{resp.text[:500]}", language="json")
 
         if resp.status_code != 200:
-            # Friendly guidance for common cases
             txt = resp.text
             if "not enough credits" in txt.lower():
-                st.error("Runway says you do not have enough credits for this run. Try a shorter duration or cheaper model.")
+                st.error("Runway says you do not have enough credits. Try a shorter duration or cheaper model.")
             elif "ratio" in txt.lower():
                 st.error("The selected aspect ratio is not allowed. Pick one from the dropdown only.")
+            elif "SAFETY" in txt or "moderation" in txt.lower():
+                st.error("Prompt rejected by moderation. Neutralize brand/team names and intense action words.")
             else:
                 st.error("Task failed to start. Adjust ratio/duration/credits/images and retry.")
             st.stop()
@@ -278,17 +279,15 @@ if go:
                 output = js.get("output") or js.get("result",{}).get("output") or []
                 break
             if state in ("FAILED","ERROR","CANCELLED"):
-                # Show useful details from server
                 st.error(f"Generation failed:\n{json.dumps(js, indent=2)}")
-                # Common helpful tips:
-                st.info("Tips: Use smaller JPEGs, shorter duration, allowed ratio, and neutralize brand/team names if moderation flags.")
+                st.info("Tips: use smaller JPEGs; try shorter duration; neutralize brands if moderation flags.")
                 st.stop()
             elapsed = int(time.time() - t0)
             s.update(label=f"Generating… {elapsed}s", state="running")
             time.sleep(2)
         s.update(label="Generation complete.", state="complete")
 
-    # Output card
+    # Output
     if not output:
         st.error("No output URL returned. Inspect logs above.")
         st.stop()
@@ -310,4 +309,4 @@ if go:
     except Exception as e:
         st.warning(f"Direct download failed (served as streaming only). You can still save from the player: {e}")
 
-    st.info("Tip: To reach 16–20s, generate two 8–10s clips and stitch in an editor (or with ffmpeg).")
+    st.info("Tip: To reach ~16–20s, generate two 8–10s clips and stitch in an editor (or with ffmpeg).")
