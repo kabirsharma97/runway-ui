@@ -1,48 +1,37 @@
 # app.py
+# 🎬 RunwayML Text + Image → Video Generator (Stakeholder Demo Version)
+# Author: Kabir Sharma | Streamlit UI for Sky AI Creative Automation MVP
+
 import os, io, time, json, base64, mimetypes, requests
 from PIL import Image
 import streamlit as st
 
-# =========================
-# PAGE CONFIG
-# =========================
-st.set_page_config(page_title="Runway Text+Image → Video", page_icon="🎬", layout="wide")
-st.title("🎬 Text-to-Video Generator")
-st.caption("Use prompt-only or add images (logo/reference). Pick a model and generate your AI video.")
-
-# =========================
-# CONSTANTS
-# =========================
+# ---------- CONFIG ----------
 API_BASE = "https://api.dev.runwayml.com"
 API_VERSION = "2024-11-06"
-ALLOWED_RATIOS = ["1280:720", "720:1280", "1104:832", "832:1104", "960:960", "1584:672"]
+ASPECT_RATIOS = ["1280:720", "720:1280"]
 
 MODEL_META = {
-    "gen4_turbo":  {"durations": [5,10], "credits_per_sec": 5, "note": "fastest & cheapest"},
-    "gen4_aleph":  {"durations": [5,10], "credits_per_sec": 15, "note": "sharper than turbo"},
-    "veo3":        {"durations": [4,6,8], "credits_per_sec": 40, "note": "high fidelity (prompt-only OK)"},
-    "veo3.1":      {"durations": [4,6,8], "credits_per_sec": 40, "note": "latest fidelity"},
-    "veo3.1_fast": {"durations": [4,6,8], "credits_per_sec": 20, "note": "balanced quality/speed"},
+    "gen4_turbo":  {"durations": [5, 10], "credits_per_sec": 5, "endpoint": "image_to_video"},
+    "veo3":        {"durations": [4, 6, 8], "credits_per_sec": 40, "endpoint": "image_to_video"},
+    "veo3.1":      {"durations": [4, 6, 8], "credits_per_sec": 40, "endpoint": "image_to_video"},
+    "veo3.1_fast": {"durations": [4, 6, 8], "credits_per_sec": 20, "endpoint": "image_to_video"},
 }
 
-# =========================
-# API KEY
-# =========================
+# ---------- SECRET ----------
 API_KEY = st.secrets.get("RUNWAY_API_KEY", os.getenv("RUNWAY_API_KEY", ""))
 if not API_KEY:
-    st.error("Missing API key. Add RUNWAY_API_KEY in Streamlit Cloud Secrets or .env (for local dev).")
+    st.error("❌ Missing API key. Please add RUNWAY_API_KEY in Streamlit Secrets.")
     st.stop()
 
-# =========================
-# HELPERS
-# =========================
-def ratio_to_float(ratio_str: str) -> float:
-    w, h = ratio_str.split(":")
-    return int(w) / int(h)
-
+# ---------- HELPER FUNCTIONS ----------
 def file_to_data_uri(file_bytes: bytes, mime: str) -> str:
     b64 = base64.b64encode(file_bytes).decode("utf-8")
     return f"data:{mime};base64,{b64}"
+
+def ratio_to_float(ratio_str: str) -> float:
+    w, h = ratio_str.split(":")
+    return int(w) / int(h)
 
 def normalize_to_ratio_pad(img: Image.Image, target_ratio: float, pad_color=(255,255,255)) -> Image.Image:
     w, h = img.size
@@ -57,44 +46,21 @@ def normalize_to_ratio_pad(img: Image.Image, target_ratio: float, pad_color=(255
         canvas = Image.new("RGB", (new_w, h), pad_color)
         canvas.paste(img, ((new_w - w)//2, 0))
         img = canvas
-
-    w, h = img.size
-    curr = w/h
-    if abs(curr - target_ratio) > 1e-3:
-        if curr > target_ratio:
-            target_h = int(round(w / target_ratio))
-            canvas = Image.new("RGB", (w, target_h), pad_color)
-            canvas.paste(img, (0, (target_h - h)//2))
-            img = canvas
-        else:
-            target_w = int(round(h * target_ratio))
-            canvas = Image.new("RGB", (target_w, h), pad_color)
-            canvas.paste(img, ((target_w - w)//2, 0))
-            img = canvas
     return img
 
-
 def start_task(model: str, ratio: str, duration: int, prompt_text: str, prompt_images):
-    """Switches endpoint dynamically: image_to_video vs text_to_video."""
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
         "X-Runway-Version": API_VERSION,
     }
-
-    use_images = len(prompt_images) > 0
-    endpoint = "image_to_video" if use_images else "text_to_video"
-    url = f"{API_BASE}/v1/{endpoint}"
-
     payload = {
         "model": model,
         "promptText": prompt_text,
         "ratio": ratio,
-        "duration": duration,
-        "seed": 123456789,
+        "duration": duration
     }
-
-    if use_images:
+    if prompt_images:
         if len(prompt_images) == 1:
             payload["promptImage"] = prompt_images[0]
         else:
@@ -103,150 +69,147 @@ def start_task(model: str, ratio: str, duration: int, prompt_text: str, prompt_i
                 arr.append({"uri": uri, "position": "last"})
             payload["promptImage"] = arr
 
-    resp = requests.post(url, headers=headers, json=payload, timeout=60)
+    resp = requests.post(f"{API_BASE}/v1/image_to_video", headers=headers, json=payload, timeout=60)
     return resp
 
-# =========================
-# UI
-# =========================
-colA, colB = st.columns([2,1], gap="large")
+# ---------- UI SETUP ----------
+st.set_page_config(page_title="🎬 Text-to-Video Generator", page_icon="🎬", layout="wide")
 
-with colA:
+st.markdown(
+    """
+    <h1 style='color:#0078D7;'>🎬 Text + Image → Video Generator</h1>
+    <p style='font-size:16px;color:#555;'>
+    Generate AI-powered marketing videos using RunwayML diffusion models.<br>
+    Choose a model, enter a prompt, and optionally add reference images (logos, characters).
+    </p>
+    <hr style="margin-top:10px;margin-bottom:20px;">
+    """,
+    unsafe_allow_html=True
+)
+
+# ---------- MAIN INPUTS ----------
+col1, col2 = st.columns([2, 1], gap="large")
+
+with col1:
+    st.markdown("### ✏️ Prompt")
     prompt = st.text_area(
-        "Prompt",
-        value=("Ultra-realistic cinematic stadium celebration; natural lighting; dynamic camera pans; "
-               "shallow depth of field; brand-consistent visuals; no real faces, alcohol, or politics."),
-        height=140,
-        help=("Describe the scene, lighting, motion, and tone. You can use this without images "
-              "or upload 1–3 reference images (logo, person, or style cue).")
+        "Describe your scene (e.g., stadium celebration, product demo, cinematic tone)",
+        value="Ultra-realistic cinematic celebration in a packed stadium at night. "
+              "Bright lights, confetti, and joyful energy. Include Sky Sports branding subtly.",
+        height=140
     )
 
+    st.markdown("### 🖼️ Upload Reference Images (Optional)")
     uploads = st.file_uploader(
-        "(Optional) Upload reference images (1–3)",
+        "Upload 1–3 reference images (fan, logo, product, etc.)",
         accept_multiple_files=True,
-        type=["png","jpg","jpeg"],
-        help=("Images are optional. The first acts as main reference; others as style cues. "
-              "Leave empty for prompt-only generation.")
+        type=["png", "jpg", "jpeg"]
     )
 
-with colB:
-    model = st.selectbox(
-        "Model",
-        list(MODEL_META.keys()),
-        index=2,
-        help=("Choose a Runway model:\n"
-              "• gen4_turbo — fast & cheap\n"
-              "• gen4_aleph — sharper\n"
-              "• veo3/3.1 — high fidelity (prompt-only OK)\n"
-              "• veo3.1_fast — balanced quality/speed")
+with col2:
+    st.markdown("### ⚙️ Model Configuration")
+    model = st.selectbox("Model ℹ️", list(MODEL_META.keys()), index=0, help="""
+        **gen4_turbo:** Fast, image-guided video generation.\n
+        **veo3 / veo3.1:** Text-only cinematic video generation (no image required).\n
+        **veo3.1_fast:** Faster version of veo3.1 for demos.
+    """)
+    ratio = st.selectbox("Aspect Ratio ℹ️", ASPECT_RATIOS, index=0, help="Choose 16:9 (landscape) or 9:16 (portrait) output format.")
+    duration = st.select_slider("Duration (seconds) ℹ️",
+        options=MODEL_META[model]["durations"], value=MODEL_META[model]["durations"][-1],
+        help="Shorter = faster, fewer credits. Longer = smoother motion, more realism."
     )
+    st.caption(f"💰 Estimated cost: ~{MODEL_META[model]['credits_per_sec']} credits/sec × {duration}s")
 
-    ratio = st.selectbox(
-        "Aspect Ratio",
-        ALLOWED_RATIOS,
-        index=0,
-        help=("Output frame shape (must match allowed ratios). "
-              "Images are auto-padded to match selected ratio.")
-    )
+generate = st.button("🚀 Generate Video", type="primary", use_container_width=True)
 
-    allowed_durations = MODEL_META[model]["durations"]
-    duration = st.select_slider(
-        "Duration (sec)",
-        options=allowed_durations,
-        value=allowed_durations[-1],
-        help=("Clip length allowed by chosen model (e.g., gen4: 5/10s, veo3.1: 4/6/8s). "
-              "Longer = higher cost & render time.")
-    )
-
-    seed = st.number_input(
-        "Seed (optional)",
-        value=123456789,
-        step=1,
-        help=("Controls randomness. Same prompt + seed → identical result; "
-              "change seed for variation.")
-    )
-
-    st.caption(f"~{MODEL_META[model]['credits_per_sec']} credits/sec × {duration}s ≈ cost estimate")
-
-go = st.button("🚀 Generate Video", type="primary", use_container_width=True)
-
-# =========================
-# ACTION
-# =========================
-if go:
-    target_ratio = ratio_to_float(ratio)
-    data_uris = []
-
-    if uploads:
-        with st.status("Preprocessing images…"):
-            for f in uploads:
-                img = Image.open(f).convert("RGB")
-                img = normalize_to_ratio_pad(img, target_ratio)
-                max_px = 1024
-                w, h = img.size
-                scale = max(w, h) / max_px
-                if scale > 1.0:
-                    img = img.resize((int(w/scale), int(h/scale)), Image.LANCZOS)
-                buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=90)
-                uri = file_to_data_uri(buf.getvalue(), "image/jpeg")
-                data_uris.append(uri)
-        st.info(f"{len(data_uris)} image(s) included as visual guidance.")
-    else:
-        st.info("No images uploaded — running prompt-only generation.")
-
-    with st.status("Submitting task to Runway…"):
-        resp = start_task(model, ratio, duration, prompt, data_uris)
-        st.code(f"HTTP {resp.status_code}\n{resp.text[:500]}", language="json")
-
-        if resp.status_code != 200:
-            st.error("Task failed to start. Check response above and adjust ratio/duration/images/credits.")
-            st.stop()
-
-        task = resp.json()
-        task_id = task.get("id") or task.get("task", {}).get("id")
-        if not task_id:
-            st.error("No task ID returned. Inspect logs above.")
-            st.stop()
-
-    with st.status("Generating video on Runway servers…"):
-        headers = {
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-            "X-Runway-Version": API_VERSION,
-        }
-        t0 = time.time()
-        while True:
-            js = requests.get(f"{API_BASE}/v1/tasks/{task_id}", headers=headers, timeout=60).json()
-            state = js.get("status") or js.get("state")
-            if state in ("SUCCEEDED", "COMPLETED", "succeeded"):
-                output = js.get("output") or js.get("result", {}).get("output") or []
-                break
-            if state in ("FAILED", "ERROR", "CANCELLED"):
-                st.error(f"Generation failed:\n{json.dumps(js, indent=2)}")
-                st.stop()
-            elapsed = int(time.time() - t0)
-            st.write(f"⏳ Generating… {elapsed}s elapsed")
-            time.sleep(2)
-
-    if not output:
-        st.error("No output URL returned. Inspect logs above.")
+# ---------- GENERATION ----------
+if generate:
+    # Validation
+    if model == "gen4_turbo" and not uploads:
+        st.warning("⚠️ gen4_turbo requires at least one reference image.")
         st.stop()
 
-    video_url = output[0] if isinstance(output, list) else output
-    st.subheader("✅ Result")
-    st.video(video_url)
+    # Preprocess images
+    prompt_images = []
+    if uploads:
+        target_ratio = ratio_to_float(ratio)
+        with st.spinner("🪄 Preprocessing images..."):
+            for f in uploads:
+                mime = mimetypes.guess_type(f.name)[0] or "image/jpeg"
+                img = Image.open(f).convert("RGB")
+                img = normalize_to_ratio_pad(img, target_ratio)
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                uri = file_to_data_uri(buf.getvalue(), "image/png")
+                prompt_images.append(uri)
 
-    try:
-        bin_mp4 = requests.get(video_url, timeout=120).content
+    with st.spinner("🚀 Submitting request to Runway..."):
+        resp = start_task(model=model, ratio=ratio, duration=duration, prompt_text=prompt, prompt_images=prompt_images)
+        st.code(f"HTTP {resp.status_code}\n{resp.text[:400]}", language="json")
+
+    if resp.status_code != 200:
+        st.error("❌ Failed to start task. Please review your ratio/duration/credits/images.")
+        st.stop()
+
+    task_id = resp.json().get("id")
+    st.success(f"✅ Task started successfully (ID: {task_id})")
+
+    progress = st.progress(0, text="⏳ Generating video… this may take a few minutes.")
+    t0 = time.time()
+    video_url = None
+    while True:
+        elapsed = int(time.time() - t0)
+        progress.progress(min(100, (elapsed % 20) * 5), text="🎥 Rendering in progress…")
+        poll = requests.get(f"{API_BASE}/v1/tasks/{task_id}",
+                            headers={"Authorization": f"Bearer {API_KEY}", "X-Runway-Version": API_VERSION})
+        js = poll.json()
+        state = js.get("status") or js.get("state")
+        if state in ("SUCCEEDED", "COMPLETED", "succeeded"):
+            output = js.get("output") or js.get("result", {}).get("output") or []
+            if output:
+                video_url = output[0]
+            break
+        if state in ("FAILED", "ERROR", "CANCELLED"):
+            st.error(f"❌ Task failed: {json.dumps(js, indent=2)}")
+            st.stop()
+        time.sleep(2)
+
+    progress.empty()
+
+    if video_url:
+        st.video(video_url)
         st.download_button(
             "⬇️ Download MP4",
-            data=bin_mp4,
+            data=requests.get(video_url).content,
             file_name=f"{model}_{ratio.replace(':','x')}_{duration}s.mp4",
-            mime="video/mp4",
-            use_container_width=True
+            mime="video/mp4"
         )
-    except Exception:
-        st.warning("Direct download may fail due to streaming response — use the video player’s save option.")
+        st.success("✅ Video generated successfully!")
 
-    st.info("To reach 16–20s, generate two 8–10s clips and stitch them together (ffmpeg or editor).")
+# ---------- GUIDELINES ----------
+st.markdown("---")
+st.markdown("## 📘 Model Usage Guidelines")
+st.markdown("""
+| Model | Image Requirement | Recommended Use | Notes |
+|--------|------------------|-----------------|--------|
+| **gen4_turbo** | ✅ Required | Logo/character-driven shots | Fast, budget-friendly generation. |
+| **veo3** | 🟡 Optional | Cinematic realism | Best for text-only creative ideation. |
+| **veo3.1** | 🟡 Optional | High-quality brand visuals | Slower but highly consistent. |
+| **veo3.1_fast** | 🟢 Optional | Rapid prototyping / Demos | Slightly reduced quality but faster. |
+""", unsafe_allow_html=True)
+
+st.info("""
+💡 *Prompting Tips:*
+- Keep prompts ≤ 800 characters.
+- Describe visual tone (lighting, mood, camera motion).
+- Avoid unsafe terms (violence, alcohol, politics, real faces).
+""")
+
+# ---------- NEXT VERSION ROADMAP ----------
+st.markdown("---")
+st.markdown("## 🚀 Next Version (v2.0) – Planned Enhancements")
+st.markdown("""
+- 🎞️ **Video-to-Video Transformation:** Generate ad variants directly from a master campaign video — enabling quick localization and reuse of existing footage.  
+- 🧠 **Product Advertisement Video Generation:** Automatically create short AI-generated advertisement videos for any product using just a product image, brief text, and brand style guide.
+""")
+st.caption("🔧 These will form part of Phase 2 roadmap for AI Creative Automation initiative.")
