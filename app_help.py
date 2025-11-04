@@ -190,7 +190,7 @@ if generate:
 st.markdown("---")
 st.markdown("## 📘 Model Usage Guidelines")
 st.markdown("""
-| Model | Image Requirement | Recommended Use | Notes |
+| Model | Image Requirement | Recommended Use Case | Notes |
 |--------|------------------|-----------------|--------|
 | **gen4_turbo** | ✅ Required | Logo/character-driven shots | Fast, budget-friendly generation. |
 | **veo3** | 🟡 Optional | Cinematic realism | Best for text-only creative ideation. |
@@ -206,10 +206,17 @@ st.info("""
 """)
 
 # ---------- NEXT VERSION ROADMAP ----------
+# ---------- NEXT VERSION ROADMAP ----------
 st.markdown("---")
 st.markdown("## 🚀 Next Version (v2.0) – Planned Enhancements")
+
 st.markdown("""
-- 🎞️ **Video-to-Video Transformation:** Generate ad variants directly from a master campaign video — enabling quick localization and reuse of existing footage.  
-- 🧠 **Product Advertisement Video Generation:** Automatically create short AI-generated advertisement videos for any product using just a product image, brief text, and brand style guide.
+| Use case | Description | Status |
+|---|---|---|
+| **Video-to-Video Transformation** | Generate ad variants directly from a master campaign video — enabling quick localization and reuse of existing footage. | **In Progress** |
+| **AI Product Advertisement Video Generation** | Automatically create short, on-brand product advertisement videos from any product webpage, designed to boost engagement and drive traffic back to the website. | **Exploration phase** |
 """)
+
+st.caption("🔧 These will form part of Phase 2 roadmap for Sky AI Creative Automation initiative.")
+
 st.caption("🔧 These will form part of Phase 2 roadmap for AI Creative Automation initiative.")
