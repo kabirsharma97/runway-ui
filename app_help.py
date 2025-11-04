@@ -7,7 +7,7 @@ import streamlit as st
 # PAGE CONFIG
 # =========================
 st.set_page_config(page_title="Runway Text+Image → Video", page_icon="🎬", layout="wide")
-st.title("🎬 Text-to-Video Generator (Runway API)")
+st.title("🎬 Text-to-Video Generator")
 st.caption("Use prompt-only or add images (logo/reference). Pick a model and generate your AI video.")
 
 # =========================
