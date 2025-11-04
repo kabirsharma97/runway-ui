@@ -216,7 +216,4 @@ st.markdown("""
 | **Video-to-Video Transformation** | Generate ad variants directly from a master campaign video — enabling quick localization and reuse of existing footage. | **In Progress** |
 | **AI Product Advertisement Video Generation** | Automatically create short, on-brand product advertisement videos from any product webpage, designed to boost engagement and drive traffic back to the website. | **Exploration phase** |
 """)
-
-st.caption("🔧 These will form part of Phase 2 roadmap for Sky AI Creative Automation initiative.")
-
 st.caption("🔧 These will form part of Phase 2 roadmap for AI Creative Automation initiative.")
